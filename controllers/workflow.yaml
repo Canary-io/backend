@@ -1,0 +1,59 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: deploy-app-
+spec:
+  entrypoint: deploy-pipeline
+  templates:
+    - name: deploy-pipeline
+      steps:
+        - - name: clone-repo
+            template: git-clone
+            arguments:
+              parameters:
+                - name: repo-url
+                  value: "{{workflow.parameters.repo-url}}"
+
+        - - name: build-docker
+            template: docker-build
+
+        - - name: deploy
+            template: deploy-k8s
+
+  arguments:
+    parameters:
+      - name: repo-url
+
+---
+
+# Template to clone repo
+- name: git-clone
+  inputs:
+    parameters:
+      - name: repo-url
+  container:
+    image: alpine/git
+    command: [sh, -c]
+    args:
+      - git clone {{inputs.parameters.repo-url}} /src
+
+# Template to build docker image
+- name: docker-build
+  container:
+    image: docker:24-dind
+    securityContext:
+      privileged: true
+    command: [sh, -c]
+    args:
+      - |
+        cd /src
+        docker build -t my-app:latest .
+
+# Template to deploy app
+- name: deploy-k8s
+  container:
+    image: bitnami/kubectl
+    command: [sh, -c]
+    args:
+      - |
+        kubectl apply -f /src/k8s/deployment.yaml
