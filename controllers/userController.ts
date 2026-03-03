@@ -4,27 +4,26 @@ const { exec } = require("child_process");
 const path = require("path");
 
 const createDeployment = async (req, res) => {
-  const { repoUrl } = req.body;
-
+  const imageName = req.body.imageName;
+  const repoUrl = req.body.repoUrl;
+  console.log(repoUrl)
   if (!repoUrl) {
     return res.status(400).json({ error: "repoUrl is required" });
   }
 
-  // Path to your workflow.yaml
   const workflowPath = path.join(__dirname, "workflow.yaml");
 
   try {
-    // Apply workflow using kubectl, passing the repo URL as a parameter
     const command = `kubectl create -f ${workflowPath} -n argo --dry-run=client -o yaml | kubectl apply -f -`;
     
-    // Replace repo URL dynamically using yq or sed
-    // Here's a simple approach with env substitution
     process.env.REPO_URL = repoUrl;
 
     const finalCommand = `
-      yq e '.spec.arguments.parameters[] |= 
-      (select(.name=="repo-url").value = "${repoUrl}")' ${workflowPath} | kubectl create -f -
-    `;
+  yq e '
+    (.spec.arguments.parameters[] | select(.name=="repo-url").value) = "${repoUrl}" |
+    (.spec.arguments.parameters[] | select(.name=="image-name").value) = "${imageName}"
+  ' ${workflowPath} | kubectl create -f -
+`;
 
     exec(finalCommand, (error, stdout, stderr) => {
       if (error) {

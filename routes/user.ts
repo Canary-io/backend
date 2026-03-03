@@ -5,6 +5,6 @@ const { createDeployment } = require("../controllers/userController.ts");
 
 //router.get("/deployments", getDeployments);
 //router.get("/repositories", getRepositories);
-router.post("/createDeployment", createDeployment)
+router.post("/createDeployment", createDeployment);
 
 module.exports = router;

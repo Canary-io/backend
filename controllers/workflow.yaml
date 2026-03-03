@@ -2,11 +2,28 @@ apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
   generateName: deploy-app-
+
 spec:
+  serviceAccountName: argo-workflow
   entrypoint: deploy-pipeline
+
+  arguments:
+    parameters:
+      - name: repo-url
+      - name: image-name
+
+  volumes:
+    - name: workspace
+      emptyDir: {}
+
+    - name: docker-config
+      secret:
+        secretName: docker-registry-creds-secret
+
   templates:
     - name: deploy-pipeline
       steps:
+
         - - name: clone-repo
             template: git-clone
             arguments:
@@ -14,46 +31,164 @@ spec:
                 - name: repo-url
                   value: "{{workflow.parameters.repo-url}}"
 
-        - - name: build-docker
-            template: docker-build
+        - - name: build-image
+            template: build-step
+            arguments:
+              parameters:
+                - name: image-name
+                  value: "{{workflow.parameters.image-name}}"
+              artifacts:
+                - name: repo
+                  from: "{{steps.clone-repo.outputs.artifacts.repo}}"
+        
+        - - name: deploy-to-k8s
+            template: deploy-step
+            arguments:
+              parameters:
+                - name: image-name
+                  value: "{{workflow.parameters.image-name}}"
+                  
+    - name: git-clone
+      inputs:
+        parameters:
+          - name: repo-url
 
-        - - name: deploy
-            template: deploy-k8s
+      outputs:
+        artifacts:
+          - name: repo
+            path: /workspace
+            s3:
+              endpoint: s3.amazonaws.com
+              bucket: canary-repos
+              key: path/in/bucket/my-output-artifact.tgz
+              accessKeySecret:
+                name: repo-store-s3-credentials
+                key: accessKey
+              secretKeySecret:
+                name: repo-store-s3-credentials
+                key: secretKey
 
-  arguments:
-    parameters:
-      - name: repo-url
+      container:
+        image: alpine/git
+        command: [sh, -c]
+        args:
+          - git clone --progress --verbose {{inputs.parameters.repo-url}} /workspace
 
----
+    - name: build-step
+      inputs:
+        parameters:
+          - name: image-name
 
-# Template to clone repo
-- name: git-clone
-  inputs:
-    parameters:
-      - name: repo-url
-  container:
-    image: alpine/git
-    command: [sh, -c]
-    args:
-      - git clone {{inputs.parameters.repo-url}} /src
+        artifacts:
+          - name: repo
+            path: /workspace
+            s3:
+              endpoint: s3.amazonaws.com
+              bucket: canary-repos
+              key: path/in/bucket/my-output-artifact.tgz
+              accessKeySecret:
+                name: repo-store-s3-credentials
+                key: accessKey
+              secretKeySecret:
+                name: repo-store-s3-credentials
+                key: secretKey
 
-# Template to build docker image
-- name: docker-build
-  container:
-    image: docker:24-dind
-    securityContext:
-      privileged: true
-    command: [sh, -c]
-    args:
-      - |
-        cd /src
-        docker build -t my-app:latest .
+      container:
+        image: moby/buildkit:latest
 
-# Template to deploy app
-- name: deploy-k8s
-  container:
-    image: bitnami/kubectl
-    command: [sh, -c]
-    args:
-      - |
-        kubectl apply -f /src/k8s/deployment.yaml
+        securityContext:
+          privileged: true
+
+        env:
+          - name: DOCKER_CONFIG
+            value: /docker-config
+
+        volumeMounts:
+          - name: docker-config
+            mountPath: /docker-config/config.json
+            subPath: .dockerconfigjson
+
+        command: ["sh", "-c"]
+
+        args:
+          - |
+            echo "DOCKER_CONFIG=$DOCKER_CONFIG"
+
+            echo "Listing docker-config directory..."
+            ls -la /docker-config || true
+
+            echo "Showing config.json..."
+            cat /docker-config/config.json || true
+
+            echo "Listing workspace..."
+            ls -R /workspace
+
+            echo "Checking for Dockerfile..."
+            if [ ! -f /workspace/Dockerfile ]; then
+              echo "Dockerfile NOT FOUND"
+              exit 1
+            fi
+
+            echo "Building image with BuildKit..."
+
+            buildctl-daemonless.sh build \
+              --frontend dockerfile.v0 \
+              --local context=/workspace \
+              --local dockerfile=/workspace \
+              --output type=image,name=ghcr.io/canary-io/{{inputs.parameters.image-name}},push=true
+      
+    - name: deploy-step
+      inputs:
+        parameters:
+          - name: image-name
+
+      container:
+        image: bitnami/kubectl:latest
+        command: [sh, -c]
+        args:
+          - |
+            echo "Deploying image ghcr.io/canary-io/{{inputs.parameters.image-name}}"
+            # Apply the rollout manifest from the workspace
+            cat <<EOF | kubectl apply -f -
+            apiVersion: argoproj.io/v1alpha1
+            kind: Rollout
+            metadata:
+              name: canary-app
+              namespace: argo-rollouts
+            spec:
+              replicas: 4
+              selector:
+                matchLabels:
+                  app: canary-app
+              template:
+                metadata:
+                  labels:
+                    app: canary-app
+                spec:
+                  imagePullSecrets:
+                    - name: docker-registry-creds-secret
+                  containers:
+                    - name: canary-app
+                      image: ghcr.io/canary-io/{{inputs.parameters.image-name}}
+                      ports:
+                        - containerPort: 8080
+              strategy:
+                canary:
+                  steps:
+                    - setWeight: 25
+                    - pause: {}       # waits for manual promotion
+                    - setWeight: 50
+                    - pause: {}
+                    - setWeight: 75
+                    - pause: {}
+                    - setWeight: 100
+            EOF
+
+            # Optional: expose service if not already created
+            kubectl expose rollout canary-app \
+              --port=80 \
+              --target-port=8080 \
+              --type=LoadBalancer \
+              --dry-run=client -o yaml | kubectl apply -f -
+
+            kubectl rollout status deployment/canary-app
