@@ -1,10 +1,9 @@
 
 const express = require("express");
 const router = express.Router();
-const { createDeployment } = require("../controllers/userController.ts");
+const { createDeployment, getRepos } = require("../controllers/userController.ts");
 
-//router.get("/deployments", getDeployments);
-//router.get("/repositories", getRepositories);
 router.post("/createDeployment", createDeployment);
+router.get("/repos", getRepos);
 
 module.exports = router;

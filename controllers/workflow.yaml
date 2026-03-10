@@ -11,6 +11,7 @@ spec:
     parameters:
       - name: repo-url
       - name: image-name
+      - name: tag
 
   volumes:
     - name: workspace
@@ -23,7 +24,6 @@ spec:
   templates:
     - name: deploy-pipeline
       steps:
-
         - - name: clone-repo
             template: git-clone
             arguments:
@@ -36,7 +36,7 @@ spec:
             arguments:
               parameters:
                 - name: image-name
-                  value: "{{workflow.parameters.image-name}}"
+                  value: "{{workflow.parameters.image-name}}:{{workflow.parameters.tag}}"
               artifacts:
                 - name: repo
                   from: "{{steps.clone-repo.outputs.artifacts.repo}}"
@@ -46,7 +46,7 @@ spec:
             arguments:
               parameters:
                 - name: image-name
-                  value: "{{workflow.parameters.image-name}}"
+                  value: "{{workflow.parameters.image-name}}:{{workflow.parameters.tag}}"
                   
     - name: git-clone
       inputs:
@@ -85,7 +85,8 @@ spec:
             s3:
               endpoint: s3.amazonaws.com
               bucket: canary-repos
-              key: path/in/bucket/my-output-artifact.tgz
+              #edit key to be more unique
+              key: path/in/bucket/canary-artifact.tgz
               accessKeySecret:
                 name: repo-store-s3-credentials
                 key: accessKey
@@ -143,52 +144,63 @@ spec:
           - name: image-name
 
       container:
-        image: bitnami/kubectl:latest
+        image: alpine/k8s:1.32.13
         command: [sh, -c]
         args:
           - |
             echo "Deploying image ghcr.io/canary-io/{{inputs.parameters.image-name}}"
             # Apply the rollout manifest from the workspace
-            cat <<EOF | kubectl apply -f -
+            cat <<EOF | kubectl apply -f  - 
             apiVersion: argoproj.io/v1alpha1
             kind: Rollout
             metadata:
-              name: canary-app
+              name: {{inputs.parameters.image-name}}
               namespace: argo-rollouts
             spec:
               replicas: 4
               selector:
                 matchLabels:
-                  app: canary-app
+                  app: {{inputs.parameters.image-name}}
               template:
                 metadata:
                   labels:
-                    app: canary-app
+                    app: {{inputs.parameters.image-name}}
                 spec:
                   imagePullSecrets:
                     - name: docker-registry-creds-secret
                   containers:
-                    - name: canary-app
+                    - name: {{inputs.parameters.image-name}}
                       image: ghcr.io/canary-io/{{inputs.parameters.image-name}}
                       ports:
                         - containerPort: 8080
               strategy:
                 canary:
+                  canaryService: canary-app-canary
+                  stableService: canary-app-stable
+                  trafficRouting:
+                    nginx:
+                      stableIngress: canary-app-ingress
                   steps:
                     - setWeight: 25
-                    - pause: {}       # waits for manual promotion
+                    - pause: {}
                     - setWeight: 50
                     - pause: {}
                     - setWeight: 75
-                    - pause: {}
+                    - analysis:
+                        templates:
+                          - templateName: prometheus-success-rate
+                          args:
+                          - name: service-name
+                            value: my-app
                     - setWeight: 100
             EOF
 
             # Optional: expose service if not already created
             kubectl expose rollout canary-app \
+              --namespace=argo-rollouts \
               --port=80 \
               --target-port=8080 \
               --type=LoadBalancer \
               --dry-run=client -o yaml | kubectl apply -f -
 
-            kubectl rollout status deployment/canary-app
+            kubectl get rollout canary-app -n argo-rollouts

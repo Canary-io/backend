@@ -10,8 +10,8 @@ metadata:
   name: argo-workflow-role
   namespace: argo
 rules:
-  - apiGroups: ["", "apps"]
-    resources: ["pods", "pods/log", "deployments", "services"]
+  - apiGroups: ["", "apps", "argoproj.io"]
+    resources: ["pods", "pods/log", "deployments", "services", "rollouts"]
     verbs: ["get", "watch", "list", "create", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -31,7 +31,7 @@ roleRef:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: argo-workflow-role
+  name: argo-workflow-rollouts-role
   namespace: argo-rollouts
 rules:
   - apiGroups: ["", "apps", "argoproj.io"]
@@ -43,13 +43,14 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: argo-workflow-binding
+  name: argo-workflow-rollouts-binding
   namespace: argo-rollouts
 subjects:
   - kind: ServiceAccount
     name: argo-workflow
+    namespace: argo
 roleRef:
   kind: Role
-  name: argo-workflow-role
+  name: argo-workflow-rollouts-role
   apiGroup: rbac.authorization.k8s.io
 

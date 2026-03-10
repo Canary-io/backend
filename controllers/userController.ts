@@ -6,6 +6,7 @@ const path = require("path");
 const createDeployment = async (req, res) => {
   const imageName = req.body.imageName;
   const repoUrl = req.body.repoUrl;
+  const tag = req.body.tag;
   console.log(repoUrl)
   if (!repoUrl) {
     return res.status(400).json({ error: "repoUrl is required" });
@@ -21,7 +22,8 @@ const createDeployment = async (req, res) => {
     const finalCommand = `
   yq e '
     (.spec.arguments.parameters[] | select(.name=="repo-url").value) = "${repoUrl}" |
-    (.spec.arguments.parameters[] | select(.name=="image-name").value) = "${imageName}"
+    (.spec.arguments.parameters[] | select(.name=="image-name").value) = "${imageName}" |
+    (.spec.arguments.parameters[] | select(.name=="tag").value) = "${tag}"
   ' ${workflowPath} | kubectl create -f -
 `;
 
@@ -38,4 +40,24 @@ const createDeployment = async (req, res) => {
   }
 };
 
-module.exports = { createDeployment };
+const getRepos = async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    const response = await fetch(`https://api.github.com/users/josephjophy/repos`);
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: "Failed to fetch repositories"});
+    }
+
+    const repos = await response.json();
+
+    return res.json(repos.map(repo => repo.html_url));
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+
+module.exports = { createDeployment, getRepos };

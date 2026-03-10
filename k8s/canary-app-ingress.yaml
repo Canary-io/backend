@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: canary-app-ingress
+  namespace: argo-rollouts
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: canary.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: canary-app-stable
+                port:
+                  number: 80

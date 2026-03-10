@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const dotenv = require('dotenv');
+const cors = require('cors');
 const pool = require("./config/db.ts");
 const authRoutes = require("./routes/auth.ts");
 const userRoutes = require("./routes/user.ts")
@@ -10,7 +11,21 @@ dotenv.config();
 const app = express();
 const PORT = 4001;
 
+const session = require("express-session");
+
+app.use(
+  session({
+    secret: "supersecretkey",
+    resave: false,
+    saveUninitialized: false,
+    cookie: { secure: false }
+  })
+);
+
+
+
 app.use(express.json());       
+app.use(cors());
 
 app.use("/auth", authRoutes);
 app.use("/user", userRoutes);
@@ -25,5 +40,6 @@ app.listen(PORT, async () => {
 	} catch (err) {
 	  console.error("Database connection failed ");
 	  console.error(err);
+	
 	}
 });

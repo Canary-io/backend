@@ -60,7 +60,9 @@ const githubCallback = async (req, res) => {
         username,
       };
 
-    res.redirect("http://localhost:3000/usermenu/j");
+    req.session.save(() => {
+      res.redirect("http://localhost:3000/usermenu/j");
+    });
   } catch (err) {
     console.error(err);
     res.status(500).send("OAuth callback failed");
