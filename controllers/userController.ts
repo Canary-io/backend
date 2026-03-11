@@ -15,7 +15,8 @@ const createDeployment = async (req, res) => {
   const workflowPath = path.join(__dirname, "workflow.yaml");
 
   try {
-    const command = `kubectl create -f ${workflowPath} -n argo --dry-run=client -o yaml | kubectl apply -f -`;
+    console.log("trying apply")
+    const command = `kubectl create -f ${workflowPath} -n argo --dry-run=client -o yaml | kubectl apply -f - --validate=false`;
     
     process.env.REPO_URL = repoUrl;
 
@@ -24,7 +25,7 @@ const createDeployment = async (req, res) => {
     (.spec.arguments.parameters[] | select(.name=="repo-url").value) = "${repoUrl}" |
     (.spec.arguments.parameters[] | select(.name=="image-name").value) = "${imageName}" |
     (.spec.arguments.parameters[] | select(.name=="tag").value) = "${tag}"
-  ' ${workflowPath} | kubectl create -f -
+  ' ${workflowPath} | kubectl create -f - --validate=false
 `;
 
     exec(finalCommand, (error, stdout, stderr) => {

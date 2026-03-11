@@ -150,7 +150,7 @@ spec:
           - |
             echo "Deploying image ghcr.io/canary-io/{{inputs.parameters.image-name}}"
             # Apply the rollout manifest from the workspace
-            cat <<EOF | kubectl apply -f  - 
+            cat <<EOF | kubectl apply -f  - --validate=false
             apiVersion: argoproj.io/v1alpha1
             kind: Rollout
             metadata:
@@ -195,12 +195,14 @@ spec:
                     - setWeight: 100
             EOF
 
-            # Optional: expose service if not already created
+            echo "exposing rollout"
+
             kubectl expose rollout canary-app \
               --namespace=argo-rollouts \
               --port=80 \
               --target-port=8080 \
               --type=LoadBalancer \
-              --dry-run=client -o yaml | kubectl apply -f -
+              --dry-run=client -o yaml | kubectl apply -f - --validate=false
 
+            echo "getting rollout"
             kubectl get rollout canary-app -n argo-rollouts

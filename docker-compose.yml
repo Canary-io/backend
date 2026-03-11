@@ -1,0 +1,21 @@
+
+version: "3.9"
+
+services:
+ db:
+   image: postgres:16
+   environment:
+     POSTGRES_USER: admin
+     POSTGRES_PASSWORD: password
+     POSTGRES_DB: mydb
+   ports:
+     - "5433:5432"
+
+ app:
+   build: .
+   environment:
+     DATABASE_URL: postgres://admin:password@db:5432/mydb
+   depends_on:
+     - db
+   ports:
+     - "4001:4001"
