@@ -20,6 +20,7 @@ spec:
     - name: docker-config
       secret:
         secretName: docker-registry-creds-secret
+    
 
   templates:
     - name: deploy-pipeline
@@ -36,7 +37,9 @@ spec:
             arguments:
               parameters:
                 - name: image-name
-                  value: "{{workflow.parameters.image-name}}:{{workflow.parameters.tag}}"
+                  value: "{{workflow.parameters.image-name}}"
+                - name: tag
+                  value: "{{workflow.parameters.tag}}"
               artifacts:
                 - name: repo
                   from: "{{steps.clone-repo.outputs.artifacts.repo}}"
@@ -46,7 +49,9 @@ spec:
             arguments:
               parameters:
                 - name: image-name
-                  value: "{{workflow.parameters.image-name}}:{{workflow.parameters.tag}}"
+                  value: "{{workflow.parameters.image-name}}"
+                - name: tag
+                  value: "{{workflow.parameters.tag}}"
                   
     - name: git-clone
       inputs:
@@ -78,6 +83,7 @@ spec:
       inputs:
         parameters:
           - name: image-name
+          - name: tag
 
         artifacts:
           - name: repo
@@ -113,16 +119,6 @@ spec:
 
         args:
           - |
-            echo "DOCKER_CONFIG=$DOCKER_CONFIG"
-
-            echo "Listing docker-config directory..."
-            ls -la /docker-config || true
-
-            echo "Showing config.json..."
-            cat /docker-config/config.json || true
-
-            echo "Listing workspace..."
-            ls -R /workspace
 
             echo "Checking for Dockerfile..."
             if [ ! -f /workspace/Dockerfile ]; then
@@ -136,73 +132,46 @@ spec:
               --frontend dockerfile.v0 \
               --local context=/workspace \
               --local dockerfile=/workspace \
-              --output type=image,name=ghcr.io/canary-io/{{inputs.parameters.image-name}},push=true
+              --output type=image,name=ghcr.io/canary-io/{{inputs.parameters.image-name}}:{{inputs.parameters.tag}},push=true
       
     - name: deploy-step
       inputs:
         parameters:
           - name: image-name
+          - name: tag
 
       container:
         image: alpine/k8s:1.32.13
         command: [sh, -c]
+        env:
+          - name: DOCKER_CONFIG
+            value: /docker-config
+
+        volumeMounts:
+          - name: docker-config
+            mountPath: /docker-config/config.json
+            subPath: .dockerconfigjson
         args:
           - |
-            echo "Deploying image ghcr.io/canary-io/{{inputs.parameters.image-name}}"
-            # Apply the rollout manifest from the workspace
-            cat <<EOF | kubectl apply -f  - --validate=false
-            apiVersion: argoproj.io/v1alpha1
-            kind: Rollout
-            metadata:
-              name: {{inputs.parameters.image-name}}
-              namespace: argo-rollouts
-            spec:
-              replicas: 4
-              selector:
-                matchLabels:
-                  app: {{inputs.parameters.image-name}}
-              template:
-                metadata:
-                  labels:
-                    app: {{inputs.parameters.image-name}}
-                spec:
-                  imagePullSecrets:
-                    - name: docker-registry-creds-secret
-                  containers:
-                    - name: {{inputs.parameters.image-name}}
-                      image: ghcr.io/canary-io/{{inputs.parameters.image-name}}
-                      ports:
-                        - containerPort: 8080
-              strategy:
-                canary:
-                  canaryService: canary-app-canary
-                  stableService: canary-app-stable
-                  trafficRouting:
-                    nginx:
-                      stableIngress: canary-app-ingress
-                  steps:
-                    - setWeight: 25
-                    - pause: {}
-                    - setWeight: 50
-                    - pause: {}
-                    - setWeight: 75
-                    - analysis:
-                        templates:
-                          - templateName: prometheus-success-rate
-                          args:
-                          - name: service-name
-                            value: my-app
-                    - setWeight: 100
-            EOF
+
+            helm install my-release oci://ghcr.io/josephjophy/orcadeployment --version 0.1.0   --set image.name={{inputs.parameters.image-name}}   --set image.tag={{tag}}  --set image.imagePullSecret[0].name=docker-registry-creds-secret
 
             echo "exposing rollout"
 
-            kubectl expose rollout canary-app \
+            kubectl expose rollout {{inputs.parameters.image-name}} \
               --namespace=argo-rollouts \
               --port=80 \
               --target-port=8080 \
               --type=LoadBalancer \
               --dry-run=client -o yaml | kubectl apply -f - --validate=false
 
+            kubectl expose rollout {{inputs.parameters.image-name}} \
+              --namespace=argo-rollouts \
+              --port=80 \
+              --target-port=8081 \
+              --type=LoadBalancer \
+              --dry-run=client -o yaml | kubectl apply -f - --validate=false
+
+
             echo "getting rollout"
-            kubectl get rollout canary-app -n argo-rollouts
+            kubectl get rollout {{inputs.parameters.image-name}} -n argo-rollouts

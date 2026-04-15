@@ -61,7 +61,7 @@ const githubCallback = async (req, res) => {
       };
 
     req.session.save(() => {
-      res.redirect("http://localhost:3000/usermenu/j");
+      res.redirect("http://localhost:3001/usermenu/j");
     });
   } catch (err) {
     console.error(err);

@@ -1,21 +1,40 @@
-
 version: "3.9"
 
 services:
- db:
-   image: postgres:16
-   environment:
-     POSTGRES_USER: admin
-     POSTGRES_PASSWORD: password
-     POSTGRES_DB: mydb
-   ports:
-     - "5433:5432"
+  db:
+    image: postgres:16
+    container_name: canary-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mydb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d mydb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
- app:
-   build: .
-   environment:
-     DATABASE_URL: postgres://admin:password@db:5432/mydb
-   depends_on:
-     - db
-   ports:
-     - "4001:4001"
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: canary-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://admin:password@db:5432/mydb
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+    ports:
+      - "4001:4001"
+
+volumes:
+  postgres_data:
