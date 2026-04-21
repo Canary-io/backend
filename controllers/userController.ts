@@ -4,9 +4,14 @@ const { exec } = require("child_process");
 const path = require("path");
 
 const createDeployment = async (req, res) => {
-  const imageName = req.body.imageName;
+  const deploymentName = req.body.deploymentName;
   const repoUrl = req.body.repoUrl;
+  const imageName = req.body.imageName;
   const tag = req.body.tag;
+  const dockerfilePath = req.body.dockerfilePath || "Dockerfile";
+  const deploymentStrategy = req.body.deploymentStrategy;
+  const steps = req.body.steps;
+
   console.log(repoUrl)
   if (!repoUrl) {
     return res.status(400).json({ error: "repoUrl is required" });
@@ -22,9 +27,13 @@ const createDeployment = async (req, res) => {
 
     const finalCommand = `
   yq e '
+    (.spec.arguments.parameters[] | select(.name=="deployment-name").value) = "${deploymentName}" |
     (.spec.arguments.parameters[] | select(.name=="repo-url").value) = "${repoUrl}" |
     (.spec.arguments.parameters[] | select(.name=="image-name").value) = "${imageName}" |
-    (.spec.arguments.parameters[] | select(.name=="tag").value) = "${tag}"
+    (.spec.arguments.parameters[] | select(.name=="tag").value) = "${tag}" |
+    (.spec.arguments.parameters[] | select(.name=="dockerfile-path").value) = "${dockerfilePath}" |
+    (.spec.arguments.parameters[] | select(.name=="deployment-strategy").value) = "${deploymentStrategy}" |
+    (.spec.arguments.parameters[] | select(.name=="steps").value) = "${steps}"
   ' ${workflowPath} | kubectl create -f - --validate=false
 `;
 
@@ -33,7 +42,7 @@ const createDeployment = async (req, res) => {
         console.error("Error deploying workflow:", stderr);
         return res.status(500).json({ error: stderr });
       }
-      res.json({ message: "Workflow triggered successfully", output: stdout });
+      res.status(202).json({ message: "Workflow triggered successfully", output: stdout });
     });
   } catch (err) {
     console.error(err);
@@ -41,24 +50,4 @@ const createDeployment = async (req, res) => {
   }
 };
 
-const getRepos = async (req, res) => {
-  try {
-    const { username } = req.params;
-
-    const response = await fetch(`https://api.github.com/users/josephjophy/repos`);
-
-    if (!response.ok) {
-      return res.status(response.status).json({ error: "Failed to fetch repositories"});
-    }
-
-    const repos = await response.json();
-
-    return res.json(repos.map(repo => repo.html_url));
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Server error" });
-  }
-};
-
-
-module.exports = { createDeployment, getRepos };
+module.exports = { createDeployment };

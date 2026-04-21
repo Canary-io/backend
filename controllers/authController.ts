@@ -71,7 +71,8 @@ const githubCallback = async (req, res) => {
 
 const githubAuth = (req, res) => {
   const clientId = process.env.GITHUB_CLIENT_ID;
-  const redirectUri = "http://localhost:4001/auth/github/callback";
+  const port = process.env.PORT || 4001;
+  const redirectUri = `http://localhost:${port}/auth/github/callback`;
 
   const githubAuthUrl =
     `https://github.com/login/oauth/authorize` +

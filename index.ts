@@ -9,7 +9,7 @@ const userRoutes = require("./routes/user.ts")
 dotenv.config();
 
 const app = express();
-const PORT = 4001;
+const PORT = process.env.PORT || 4001;
 
 const session = require("express-session");
 
@@ -25,7 +25,12 @@ app.use(
 
 
 app.use(express.json());       
-app.use(cors());
+app.use(
+	cors({
+	  origin: "http://localhost:3001",
+	  credentials: true,
+	})
+  );
 
 app.use("/auth", authRoutes);
 app.use("/user", userRoutes);

@@ -1,6 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
+  namespace: argo
   generateName: deploy-app-
 
 spec:
@@ -9,9 +10,13 @@ spec:
 
   arguments:
     parameters:
+      - name: deployment-name
       - name: repo-url
       - name: image-name
       - name: tag
+      - name: dockerfile-path
+      - name: deployment-strategy
+      - name: steps
 
   volumes:
     - name: workspace
@@ -40,6 +45,8 @@ spec:
                   value: "{{workflow.parameters.image-name}}"
                 - name: tag
                   value: "{{workflow.parameters.tag}}"
+                - name: dockerfile-path
+                  value: "{{workflow.parameters.dockerfile-path}}"
               artifacts:
                 - name: repo
                   from: "{{steps.clone-repo.outputs.artifacts.repo}}"
@@ -48,10 +55,16 @@ spec:
             template: deploy-step
             arguments:
               parameters:
+                - name: deployment-name
+                  value: "{{workflow.parameters.deployment-name}}"
                 - name: image-name
                   value: "{{workflow.parameters.image-name}}"
                 - name: tag
                   value: "{{workflow.parameters.tag}}"
+                - name: deployment-strategy
+                  value: "{{workflow.parameters.deployment-strategy}}"
+                - name: steps
+                  value: "{{workflow.parameters.steps}}"
                   
     - name: git-clone
       inputs:
@@ -84,6 +97,7 @@ spec:
         parameters:
           - name: image-name
           - name: tag
+          - name: dockerfile-path
 
         artifacts:
           - name: repo
@@ -119,10 +133,26 @@ spec:
 
         args:
           - |
+            echo "Checking docker auth config..."
+            if [ ! -f /docker-config/config.json ]; then
+              echo "Docker config not found"
+              exit 1
+            fi
+
+            cat /docker-config/config.json
+
+            if ! grep -q "ghcr.io" /docker-config/config.json; then
+              echo "No ghcr.io credentials found in docker config"
+              exit 1
+            fi
+
+            DOCKERFILE_PATH="/workspace/{{inputs.parameters.dockerfile-path}}"
+            DOCKERFILE_DIR="$(dirname "$DOCKERFILE_PATH")"
 
             echo "Checking for Dockerfile..."
-            if [ ! -f /workspace/Dockerfile ]; then
+            if [ ! -f "$DOCKERFILE_PATH" ]; then
               echo "Dockerfile NOT FOUND"
+              echo "Looked for: $DOCKERFILE_PATH"
               exit 1
             fi
 
@@ -131,14 +161,18 @@ spec:
             buildctl-daemonless.sh build \
               --frontend dockerfile.v0 \
               --local context=/workspace \
-              --local dockerfile=/workspace \
-              --output type=image,name=ghcr.io/canary-io/{{inputs.parameters.image-name}}:{{inputs.parameters.tag}},push=true
+              --local dockerfile="$DOCKERFILE_DIR" \
+              --opt filename="$(basename "$DOCKERFILE_PATH")" \
+              --output type=image,name=ghcr.io/josephjophy/{{inputs.parameters.image-name}}:{{inputs.parameters.tag}},push=true
       
     - name: deploy-step
       inputs:
         parameters:
+          - name: deployment-name
           - name: image-name
           - name: tag
+          - name: deployment-strategy
+          - name: steps
 
       container:
         image: alpine/k8s:1.32.13
@@ -153,8 +187,16 @@ spec:
             subPath: .dockerconfigjson
         args:
           - |
+            if [ "{{inputs.parameters.deployment-strategy}}" = "canary" ]; then
+              STRATEGY_FLAGS='--set rollout.canary.enabled=true --set rollout.bluegreen.enabled=false --set-json rollout.canary.steps=[{{inputs.parameters.steps}}]'
+            elif [ "{{inputs.parameters.deployment-strategy}}" = "bluegreen" ]; then
+              STRATEGY_FLAGS="--set rollout.canary.enabled=false --set rollout.bluegreen.enabled=true"
+            else
+              echo "Invalid deployment strategy: {{inputs.parameters.deployment-strategy}}"
+              exit 1
+            fi
 
-            helm install my-release oci://ghcr.io/josephjophy/orcadeployment --version 0.1.0   --set image.name={{inputs.parameters.image-name}}   --set image.tag={{tag}}  --set image.imagePullSecret[0].name=docker-registry-creds-secret
+            helm install {{inputs.parameters.deployment-name}}-release oci://ghcr.io/canary-io/orcadeployment --version 0.3.0 --set image.name={{inputs.parameters.image-name}} --set image.tag={{inputs.parameters.tag}} $STRATEGY_FLAGS
 
             echo "exposing rollout"
 
