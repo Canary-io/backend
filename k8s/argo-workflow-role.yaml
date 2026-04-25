@@ -12,7 +12,7 @@ metadata:
 rules:
   - apiGroups: ["", "apps", "argoproj.io"]
     resources: ["pods", "pods/log", "deployments", "services", "rollouts", "secrets"]
-    verbs: ["get", "watch", "list", "create", "patch", "delete", "update"]
+    verbs: ["get", "watch", "list", "create", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -34,9 +34,9 @@ metadata:
   name: argo-workflow-rollouts-role
   namespace: argo-rollouts
 rules:
-  - apiGroups: ["", "apps", "argoproj.io", "networking.k8s.io", "argoproj.io"]
-    resources: ["pods", "pods/log", "deployments", "services", "rollouts", "configmaps", "ingresses", "analysistemplates"]
-    verbs: ["get", "watch", "list", "create", "patch", "delete"]
+  - apiGroups: ["", "apps", "argoproj.io", "networking.k8s.io", "\\"]
+    resources: ["pods", "pods/log", "deployments", "services", "rollouts", "configmaps", "ingresses", "secrets", "analysistemplates"]
+    verbs: ["get", "watch", "list", "create", "patch", "delete", "update"]
 
 ---
 
@@ -61,8 +61,8 @@ metadata:
   name: argo-workflow-podmonitor-role
   namespace: monitoring
 rules:
-  - apiGroups: ["monitoring.coreos.com"]
-    resources: ["podmonitors"]
+  - apiGroups: ["","monitoring.coreos.com"]
+    resources: ["podmonitors", "configmaps"]
     verbs: ["get", "watch", "list", "create", "patch", "delete"]
 
 ---

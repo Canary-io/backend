@@ -163,7 +163,7 @@ spec:
               --local context=/workspace \
               --local dockerfile="$DOCKERFILE_DIR" \
               --opt filename="$(basename "$DOCKERFILE_PATH")" \
-              --output type=image,name=ghcr.io/josephjophy/{{inputs.parameters.image-name}}:{{inputs.parameters.tag}},push=true
+              --output type=image,name=ghcr.io/canary-io/{{inputs.parameters.image-name}}:{{inputs.parameters.tag}},push=true
       
     - name: deploy-step
       inputs:
@@ -196,7 +196,16 @@ spec:
               exit 1
             fi
 
-            helm install {{inputs.parameters.deployment-name}}-release oci://ghcr.io/canary-io/orcadeployment --version 0.3.0 --set image.name={{inputs.parameters.image-name}} --set image.tag={{inputs.parameters.tag}} $STRATEGY_FLAGS
+            helm install {{inputs.parameters.deployment-name}}-release oci://ghcr.io/canary-io/charts/orcadeployment \
+            --version 0.3.2 \
+            --namespace argo-rollouts \
+            --create-namespace \
+            --set image.name={{inputs.parameters.image-name}} \
+            --set image.repository=ghcr.io/canary-io/{{inputs.parameters.image-name}} \
+            --set image.tag={{inputs.parameters.tag}} \
+            --set image.imagePullSecret=docker-registry-creds-secret \
+            $STRATEGY_FLAGS
+
 
             echo "exposing rollout"
 
