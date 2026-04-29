@@ -3,6 +3,7 @@ const axios = require('axios');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const pool = require("./config/db.ts");
+const { ensureTablesExist } = require("./config/db.ts");
 const authRoutes = require("./routes/auth.ts");
 const userRoutes = require("./routes/user.ts")
 
@@ -42,6 +43,8 @@ app.listen(PORT, async () => {
 	  const client = await pool.connect();
 	  console.log("Database connected successfully ");
 	  client.release();
+	  await ensureTablesExist();
+	  console.log("Database tables created");
 	} catch (err) {
 	  console.error("Database connection failed ");
 	  console.error(err);

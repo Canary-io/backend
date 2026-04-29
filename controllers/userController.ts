@@ -1,6 +1,6 @@
 const pool = require("../config/db.ts");
 
-const { exec } = require("child_process");
+const { exec, execFile } = require("child_process");
 const path = require("path");
 
 const createDeployment = async (req, res) => {
@@ -50,4 +50,36 @@ const createDeployment = async (req, res) => {
   }
 };
 
-module.exports = { createDeployment };
+const promoteRollout = async (req, res) => {
+  const rolloutName = req.body.rolloutName;
+
+  if (!rolloutName) {
+    return res.status(400).json({ error: "rolloutName is required" });
+  }
+
+  execFile(
+    "kubectl",
+    ["argo", "rollouts", "promote", rolloutName, "-n", "argo-rollouts"],
+    (error, stdout, stderr) => {
+      if (error) {
+        console.error("Error promoting rollout:", stderr || error.message);
+        return res.status(500).json({
+          error: stderr || error.message,
+        });
+      }
+
+      return res.status(200).json({
+        message: "Rollout promoted successfully",
+        output: stdout.trim(),
+      });
+    }
+  );
+};
+
+const getCurrentUser = async (req, res) => {
+  return res.status(200).json({
+    user: req.session?.user || null,
+  });
+};
+
+module.exports = { createDeployment, promoteRollout, getCurrentUser };

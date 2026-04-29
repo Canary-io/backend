@@ -197,7 +197,7 @@ spec:
             fi
 
             helm install {{inputs.parameters.deployment-name}}-release oci://ghcr.io/canary-io/charts/orcadeployment \
-            --version 0.3.2 \
+            --version 0.5.1 \
             --namespace argo-rollouts \
             --create-namespace \
             --set image.name={{inputs.parameters.image-name}} \
