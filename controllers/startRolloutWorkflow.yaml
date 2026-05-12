@@ -2,10 +2,10 @@ apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
   namespace: argo
-  generateName: deploy-app-
+  generateName: start-rollout-
 spec:
   serviceAccountName: argo-workflow
-  entrypoint: deploy-pipeline
+  entrypoint: rollout-pipeline
 
   arguments:
     parameters:
@@ -26,7 +26,7 @@ spec:
         secretName: docker-registry-creds-secret
 
   templates:
-    - name: deploy-pipeline
+    - name: rollout-pipeline
       steps:
         - - name: clone-repo
             template: git-clone
@@ -49,8 +49,8 @@ spec:
                 - name: repo
                   from: "{{steps.clone-repo.outputs.artifacts.repo}}"
 
-        - - name: deploy-to-k8s
-            template: deploy-step
+        - - name: patch-rollout
+            template: patch-rollout-step
             arguments:
               parameters:
                 - name: deployment-name
@@ -59,10 +59,6 @@ spec:
                   value: "{{workflow.parameters.image-name}}"
                 - name: tag
                   value: "{{workflow.parameters.tag}}"
-                - name: deployment-strategy
-                  value: "{{workflow.parameters.deployment-strategy}}"
-                - name: steps
-                  value: "{{workflow.parameters.steps}}"
 
     - name: git-clone
       inputs:
@@ -122,6 +118,8 @@ spec:
         command: ["sh", "-c"]
         args:
           - |
+            set -e
+
             echo "Checking docker auth config..."
             if [ ! -f /docker-config/config.json ]; then
               echo "Docker config not found"
@@ -151,59 +149,47 @@ spec:
               --opt filename="$(basename "$DOCKERFILE_PATH")" \
               --output type=image,name=ghcr.io/canary-io/{{inputs.parameters.image-name}}:{{inputs.parameters.tag}},push=true
 
-    - name: deploy-step
+    - name: patch-rollout-step
       inputs:
         parameters:
           - name: deployment-name
           - name: image-name
           - name: tag
-          - name: deployment-strategy
-          - name: steps
       container:
         image: alpine/k8s:1.32.13
         command: [sh, -c]
-        env:
-          - name: DOCKER_CONFIG
-            value: /docker-config
-        volumeMounts:
-          - name: docker-config
-            mountPath: /docker-config/config.json
-            subPath: .dockerconfigjson
         args:
           - |
             set -e
 
-            if [ "{{inputs.parameters.deployment-strategy}}" = "canary" ]; then
-              STRATEGY_FLAGS='--set rollout.canary.enabled=true --set rollout.bluegreen.enabled=false --set-json rollout.canary.steps=[{{inputs.parameters.steps}}]'
-            elif [ "{{inputs.parameters.deployment-strategy}}" = "bluegreen" ]; then
-              STRATEGY_FLAGS="--set rollout.canary.enabled=false --set rollout.bluegreen.enabled=true"
-            else
-              echo "Invalid deployment strategy: {{inputs.parameters.deployment-strategy}}"
-              exit 1
-            fi
+            IMAGE_REF="ghcr.io/canary-io/{{inputs.parameters.image-name}}:{{inputs.parameters.tag}}"
 
-            helm install {{inputs.parameters.deployment-name}} oci://ghcr.io/canary-io/charts/orcadeployment \
-              --version 0.6.0 \
-              --namespace argo-rollouts \
-              --create-namespace \
-              --set image.name={{inputs.parameters.image-name}} \
-              --set image.repository=ghcr.io/canary-io/{{inputs.parameters.image-name}} \
-              --set image.tag={{inputs.parameters.tag}} \
-              --set image.imagePullSecret=docker-registry-creds-secret \
-              --set grafanaDashboard.enabled=false \
-              --set grafanaImportJob.enabled=true \
-              --set grafanaImportJob.namespace=monitoring \
-              --set grafanaImportJob.grafanaUrl=http://prometheus-stack-grafana.monitoring.svc.cluster.local \
-              --set grafanaImportJob.credentialsSecret.create=false \
-              --set grafanaImportJob.credentialsSecret.name=grafana-import-credentials \
-              --set grafanaImportJob.credentialsSecret.usernameKey=admin-user \
-              --set grafanaImportJob.credentialsSecret.passwordKey=admin-password \
-              $STRATEGY_FLAGS
+            echo "Checking rollout exists"
+            kubectl get rollout {{inputs.parameters.deployment-name}} -n argo-rollouts >/dev/null
 
-            echo "Verifying rollout services created by Helm"
-            kubectl get svc \
-              --namespace=argo-rollouts \
-              -l app.kubernetes.io/instance={{inputs.parameters.deployment-name}}
+            echo "Updating rollout image to $IMAGE_REF"
+            kubectl patch rollout {{inputs.parameters.deployment-name}} \
+              -n argo-rollouts \
+              --type json \
+              -p="[ \
+                { \
+                  \"op\": \"replace\", \
+                  \"path\": \"/spec/template/spec/containers/0/image\", \
+                  \"value\": \"$IMAGE_REF\" \
+                } \
+              ]"
+
+            echo "Adding restart annotation"
+            kubectl patch rollout {{inputs.parameters.deployment-name}} \
+              -n argo-rollouts \
+              --type merge \
+              -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"canary.io/restartedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}}}}"
+
+            echo "Verifying rollout image"
+            kubectl get rollout {{inputs.parameters.deployment-name}} \
+              -n argo-rollouts \
+              -o jsonpath='{.spec.template.spec.containers[0].image}'
+            echo
 
             echo "Getting rollout"
             kubectl get rollout {{inputs.parameters.deployment-name}} -n argo-rollouts

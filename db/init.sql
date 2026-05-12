@@ -7,10 +7,16 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS deployments (
   id BIGSERIAL PRIMARY KEY,
-  username TEXT NOT NULL,
+  github_id TEXT NOT NULL,
   deployment_name TEXT NOT NULL,
-  rollout_status TEXT NOT NULL,
-  deployment_url TEXT,
-  metrics_url TEXT,
+  status TEXT NOT NULL,
+  repo_url TEXT,
+  image_name TEXT,
+  tag TEXT,
+  dockerfile_path TEXT,
+  deployment_strategy TEXT,
+  steps TEXT,
+  deployment_url TEXT[],
+  metric_url TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -10,8 +10,8 @@ metadata:
   name: argo-workflow-role
   namespace: argo
 rules:
-  - apiGroups: ["", "apps", "argoproj.io"]
-    resources: ["pods", "pods/log", "deployments", "services", "rollouts", "secrets"]
+  - apiGroups: ["", "apps", "argoproj.io", "networking.k8s.io"]
+    resources: ["pods", "pods/log", "deployments", "services", "rollouts", "ingresses", "secrets", "workflowtaskresults"]
     verbs: ["get", "watch", "list", "create", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -22,9 +22,34 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: argo-workflow
+    namespace: argo
 roleRef:
   kind: Role
   name: argo-workflow-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: argo-workflow-ingress-reader
+rules:
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argo-workflow-ingress-reader-binding
+subjects:
+  - kind: ServiceAccount
+    name: argo-workflow
+    namespace: argo
+roleRef:
+  kind: ClusterRole
+  name: argo-workflow-ingress-reader
   apiGroup: rbac.authorization.k8s.io
 
 ---
@@ -34,12 +59,11 @@ metadata:
   name: argo-workflow-rollouts-role
   namespace: argo-rollouts
 rules:
-  - apiGroups: ["", "apps", "argoproj.io", "networking.k8s.io", "\\"]
-    resources: ["pods", "pods/log", "deployments", "services", "rollouts", "configmaps", "ingresses", "secrets", "analysistemplates"]
+  - apiGroups: ["", "apps", "argoproj.io", "networking.k8s.io"]
+    resources: ["pods", "pods/log", "deployments", "services", "rollouts", "configmaps", "ingresses", "secrets", "analysistemplates", "namespaces"]
     verbs: ["get", "watch", "list", "create", "patch", "delete", "update"]
 
 ---
-
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -61,8 +85,8 @@ metadata:
   name: argo-workflow-podmonitor-role
   namespace: monitoring
 rules:
-  - apiGroups: ["","monitoring.coreos.com"]
-    resources: ["podmonitors", "configmaps"]
+  - apiGroups: ["", "monitoring.coreos.com", "batch"]
+    resources: ["podmonitors", "configmaps","jobs", "secrets"]
     verbs: ["get", "watch", "list", "create", "patch", "delete"]
 
 ---
@@ -79,3 +103,25 @@ roleRef:
   kind: Role
   name: argo-workflow-podmonitor-role
   apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: argo-workflow-crd-reader
+rules:
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argo-workflow-crd-reader-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: argo-workflow-crd-reader
+subjects:
+- kind: ServiceAccount
+  name: argo-workflow
+  namespace: argo
